@@ -1,0 +1,84 @@
+//@version=6
+// Market Structure — BOS/CHoCH Detection with Trend Mapping
+// Author: Fian Dev | fiverr.com/mrxx_25
+
+indicator("Market Structure", overlay=true)
+
+// ─── Inputs ──────────────────────────────────────────
+structureLookback = input.int(5, "Swing Lookback", minval=2, maxval=20)
+showBOS          = input.bool(true, "Show Break of Structure")
+showCHoCH        = input.bool(true, "Show Change of Character")
+trendStrength    = input.int(3, "Trend Confirmation", minval=1, maxval=10)
+
+// ─── Swing Detection ─────────────────────────────────
+ph = ta.pivothigh(structureLookback, structureLookback)
+pl = ta.pivotlow(structureLookback, structureLookback)
+
+var float lastHH = na
+var float lastHL = na
+var float lastLH = na
+var float lastLL = na
+var int   bosCount = 0
+
+// ─── Track Structure Points ──────────────────────────
+if not na(ph)
+    if na(lastHH) or ph > lastHH
+        lastHH := ph
+    lastLH := ph
+
+if not na(pl)
+    if na(lastLL) or pl < lastLL
+        lastLL := pl
+    lastHL := pl
+
+// ─── Break of Structure Detection ────────────────────
+bullishBOS = not na(lastHH) and close > lastHH and barstate.isconfirmed
+bearishBOS = not na(lastLL) and close < lastLL and barstate.isconfirmed
+
+if bullishBOS
+    bosCount := bosCount + 1
+    lastLL := lastHL
+    lastHL := na
+
+if bearishBOS
+    bosCount := bosCount - 1
+    lastHH := lastLH
+    lastLH := na
+
+// ─── Change of Character ─────────────────────────────
+bullishCHoCH = close > lastLH and lastLH < lastHH and close[1] < lastLH[1]
+bearishCHoCH = close < lastHL and lastHL > lastLL and close[1] > lastHL[1]
+
+// ─── Trend State ─────────────────────────────────────
+trend = bosCount >= trendStrength ? 1 : bosCount <= -trendStrength ? -1 : bosCount
+
+// ─── Plot Structure Levels ───────────────────────────
+plot(not na(lastHH) ? lastHH : na, "HH", color.red, 1, plot.style_circles)
+plot(not na(lastLL) ? lastLL : na, "LL", color.green, 1, plot.style_circles)
+
+// ── BOS Lines ────────────────────────────────────────
+if bullishBOS
+    line.new(bar_index[1], lastHH, bar_index, lastHH, color.green, 1, line.style_solid)
+if bearishBOS
+    line.new(bar_index[1], lastLL, bar_index, lastLL, color.red, 1, line.style_solid)
+
+// ── CHoCH Labels ─────────────────────────────────────
+if bullishCHoCH and showCHoCH
+    label.new(bar_index, low * 0.998, "CHoCH ▲",
+        color=color.green, textcolor=color.white, size=size.small, style=label.style_label_up)
+if bearishCHoCH and showCHoCH
+    label.new(bar_index, high * 1.002, "CHoCH ▼",
+        color=color.red, textcolor=color.white, size=size.small, style=label.style_label_down)
+
+// ── BOS Markers ──────────────────────────────────────
+plotshape(bullishBOS and showBOS ? low * 0.997 : na, "BOS ▲", shape.triangleup, location.belowbar, color.green, size=size.small, text="BOS")
+plotshape(bearishBOS and showBOS ? high * 1.003 : na, "BOS ▼", shape.triangledown, location.abovebar, color.red, size=size.small, text="BOS")
+
+// ─── Trend Background ────────────────────────────────
+bgcolor(trend > 0 ? color.new(color.green, 93) : trend < 0 ? color.new(color.red, 93) : na)
+
+// ─── Alerts ──────────────────────────────────────────
+alertcondition(bullishBOS, "Bullish BOS", "Break of structure to the upside")
+alertcondition(bearishBOS, "Bearish BOS", "Break of structure to the downside")
+alertcondition(bullishCHoCH, "Bullish CHoCH", "Change of character — potential trend reversal up")
+alertcondition(bearishCHoCH, "Bearish CHoCH", "Change of character — potential trend reversal down")

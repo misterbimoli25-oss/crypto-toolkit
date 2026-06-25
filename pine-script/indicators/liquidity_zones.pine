@@ -1,0 +1,92 @@
+//@version=6
+// Liquidity Zones — Auto-Detect Buy-Side & Sell-Side Liquidity
+// Author: Fian Dev | fiverr.com/mrxx_25
+
+indicator("Liquidity Zones", overlay=true)
+
+// ─── Inputs ──────────────────────────────────────────
+lookback      = input.int(50, "Lookback Bars", minval=10, maxval=500)
+zoneStrength  = input.int(3, "Touch Count", minval=1, maxval=10)
+showSweeps    = input.bool(true, "Show Liquidity Sweeps")
+sweepWickPct  = input.float(0.3, "Sweep Wick %", minval=0.1, step=0.1)
+zoneExtend    = input.bool(true, "Extend Zones Right")
+toggleBSL     = input.bool(true, "Buy-Side Liquidity")
+toggleSSL     = input.bool(true, "Sell-Side Liquidity")
+
+// ─── Pivot Detection ─────────────────────────────────
+pivotHigh = ta.pivothigh(lookback, lookback)
+pivotLow  = ta.pivotlow(lookback, lookback)
+
+// ─── Zone Accumulation ───────────────────────────────
+type Zone
+    float level
+    int   touches
+    bool  active
+    int   firstBar
+
+var Zone[] bslZones = array.new<Zone>()
+var Zone[] sslZones = array.new<Zone>()
+
+// Detect pivots & track touches
+if not na(pivotHigh)
+    found = false
+    for z in bslZones
+        if math.abs(z.level - pivotHigh) / pivotHigh < 0.002
+            z.touches += 1
+            found := true
+            break
+    if not found
+        array.push(bslZones, Zone.new(pivotHigh, 1, true, bar_index))
+
+if not na(pivotLow)
+    found = false
+    for z in sslZones
+        if math.abs(z.level - pivotLow) / pivotLow < 0.002
+            z.touches += 1
+            found := true
+            break
+    if not found
+        array.push(sslZones, Zone.new(pivotLow, 1, true, bar_index))
+
+// ─── Sweep Detection ─────────────────────────────────
+candleHigh = math.max(open, close)
+candleLow  = math.min(open, close)
+wickSize   = high - math.max(open, close)
+
+bslSweep = false
+sslSweep = false
+
+for z in bslZones
+    if z.active and z.touches >= zoneStrength
+        if high > z.level and candleHigh <= z.level and showSweeps
+            bslSweep := true
+            z.active := false
+
+for z in sslZones
+    if z.active and z.touches >= zoneStrength
+        if low < z.level and candleLow >= z.level and showSweeps
+            sslSweep := true
+            z.active := false
+
+// ─── Plot Zones ──────────────────────────────────────
+for z in bslZones
+    if z.active and z.touches >= zoneStrength and toggleBSL
+        line.new(z.firstBar, z.level, bar_index + (zoneExtend ? 500 : 0), z.level,
+            color=color.new(color.red, 70), width=1, style=line.style_dashed)
+        label.new(bar_index, z.level, "BSL " + str.tostring(z.touches),
+            color=color.new(color.red, 85), textcolor=color.white, size=size.small, style=label.style_label_lower_right)
+
+for z in sslZones
+    if z.active and z.touches >= zoneStrength and toggleSSL
+        line.new(z.firstBar, z.level, bar_index + (zoneExtend ? 500 : 0), z.level,
+            color=color.new(color.green, 70), width=1, style=line.style_dashed)
+        label.new(bar_index, z.level, "SSL " + str.tostring(z.touches),
+            color=color.new(color.green, 85), textcolor=color.white, size=size.small, style=style.label_upper_right)
+
+// ─── Plot Sweeps ─────────────────────────────────────
+plotshape(bslSweep ? high : na, "BSL Swept", shape.xcross, location.absolute, color.red, size=size.normal)
+plotshape(sslSweep ? low : na, "SSL Swept", shape.xcross, location.absolute, color.green, size=size.normal)
+
+// ─── Alerts ──────────────────────────────────────────
+alertcondition(bslSweep, "BSL Sweep", "Buy-side liquidity swept — potential reversal")
+alertcondition(sslSweep, "SSL Sweep", "Sell-side liquidity swept — potential reversal")

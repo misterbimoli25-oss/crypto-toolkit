@@ -1,0 +1,79 @@
+//@version=6
+// Volume Pulse — Anomalous Volume Detection with Signal Scoring
+// Author: Fian Dev | fiverr.com/mrxx_25
+
+indicator("Volume Pulse", overlay=false)
+
+// ─── Inputs ──────────────────────────────────────────
+volAvgLen       = input.int(20, "Volume MA Length", minval=5)
+pulseThreshold  = input.float(2.0, "Pulse Threshold (x avg)", minval=1.0, step=0.1)
+showScore       = input.bool(true, "Show Signal Score")
+scoreSmooth     = input.int(3, "Score Smoothing", minval=1, maxval=10)
+
+// ─── Volume Analysis ────────────────────────────────
+volAvg    = ta.sma(volume, volAvgLen)
+volRatio  = volume / volAvg
+isPulse   = volRatio >= pulseThreshold
+
+// ─── Price Context ───────────────────────────────────
+candleBody  = math.abs(close - open)
+candleRange = high - low
+bodyRatio   = candleRange > 0 ? candleBody / candleRange : 0
+isBullish   = close > open
+upperWick   = high - math.max(open, close)
+lowerWick   = math.min(open, close) - low
+
+// ─── Signal Scoring (0-100) ──────────────────────────
+score = 0.0
+
+// Volume component (0-30)
+score += math.min(volRatio * 10, 30)
+
+// Body strength (0-20)
+score += bodyRatio * 20
+
+// Directional conviction (0-20)
+if isBullish
+    score += math.min(lowerWick / (candleRange + 0.0001), 1) * 20  // Small lower wick = strong buy
+else
+    score += math.min(upperWick / (candleRange + 0.0001), 1) * 20  // Small upper wick = strong sell
+
+// Trend context (0-15)
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+if (isBullish and ema20 > ema50) or (not isBullish and ema20 < ema50)
+    score += 15
+
+// Relative position (0-15)
+highest = ta.highest(high, 50)
+lowest  = ta.lowest(low, 50)
+posRank = (close - lowest) / (highest - lowest + 0.0001)
+if isBullish and posRank < 0.3    // Buying at support = good
+    score += 15
+else if not isBullish and posRank > 0.7  // Selling at resistance = good
+    score += 15
+else if posRank > 0.3 and posRank < 0.7
+    score += 8
+
+smoothScore = ta.ema(score, scoreSmooth)
+
+// ─── Volume Bars ─────────────────────────────────────
+bullColor = color.new(color.green, isPulse ? 0 : 50)
+bearColor = color.new(color.red,   isPulse ? 0 : 50)
+
+plot(volume, "Volume", isBullish ? bullColor : bearColor, style=plot.style_columns)
+plot(volAvg, "Vol Avg", color.blue, 1)
+
+// ─── Pulse Highlight ─────────────────────────────────
+bgcolor(isPulse ? (isBullish ? color.new(color.green, 90) : color.new(color.red, 90)) : na)
+
+// ─── Score Panel ─────────────────────────────────────
+hline(70, "Strong", color.green, hline.style_dashed)
+hline(30, "Weak", color.red, hline.style_dashed)
+
+scoreColor = smoothScore > 70 ? color.green : smoothScore > 30 ? color.yellow : color.red
+plot(showScore ? smoothScore : na, "Score", scoreColor, 2)
+
+// ─── Alerts ──────────────────────────────────────────
+alertcondition(isPulse and isBullish and smoothScore > 70, "Bullish Pulse", "High-volume bullish signal with strong score")
+alertcondition(isPulse and not isBullish and smoothScore > 70, "Bearish Pulse", "High-volume bearish signal with strong score")

@@ -1,0 +1,78 @@
+//@version=6
+// Supertrend Multi — Multi-Timeframe Supertrend with Signal Alerts
+// Author: Fian Dev | fiverr.com/mrxx_25
+
+indicator("Supertrend Multi", overlay=true)
+
+// ─── Inputs ──────────────────────────────────────────
+atrPeriod  = input.int(10,  "ATR Period",  minval=1)
+atrMultiplier = input.float(3.0, "ATR Multiplier", minval=0.1, step=0.1)
+htf        = input.timeframe("60", "Higher Timeframe", options=["15", "60", "240", "D", "W"])
+showHTF    = input.bool(true, "Show HTF Supertrend")
+signalMode = input.string("Flip", "Signal Mode", options=["Flip", "Cross", "Both"])
+
+// ─── Supertrend Function ─────────────────────────────
+supertrend(src, atrLen, mult) =>
+    atr = ta.atr(atrLen)
+    upper = src + mult * atr
+    lower = src - mult * atr
+    var float up   = 0
+    var float down = 0
+    var int   trend = 0
+
+    up   := lower > up[1]   or close[1] < up[1]   ? lower : up[1]
+    down := upper  < down[1] or close[1] > down[1] ? upper : down[1]
+
+    if na(trend[1]) or trend[1] == 0
+        trend := close > down ? 1 : -1
+    else if trend[1] == 1
+        trend := close >= up ? 1 : -1
+    else
+        trend := close <= down ? -1 : 1
+
+    [trend, up, down]
+
+// ─── Current TF ──────────────────────────────────────
+[currTrend, currUp, currDown] = supertrend(hl2, atrPeriod, atrMultiplier)
+
+plot(currTrend == 1 ? currUp : na, "Support",  color.green,  2, plot.style_linebr)
+plot(currTrend == -1 ? currDown : na, "Resist", color.red,    2, plot.style_linebr)
+
+// ─── HTF Supertrend ──────────────────────────────────
+[htfTrend, htfUp, htfDown] = request.security(
+    syminfo.tickerid, htf,
+    supertrend(hl2, atrPeriod, atrMultiplier)
+)
+
+htfUpPlot   = plot(showHTF and htfTrend == 1  ? htfUp   : na, "HTF Support", color.new(color.green, 60), 3)
+htfDownPlot = plot(showHTF and htfTrend == -1 ? htfDown : na, "HTF Resist",  color.new(color.red, 60),   3)
+fill(htfUpPlot, htfDownPlot, color.new(color.gray, 90), "HTF Band")
+
+// ─── Signals ─────────────────────────────────────────
+bullishFlip = currTrend == 1  and currTrend[1] == -1
+bearishFlip = currTrend == -1 and currTrend[1] == 1
+bullishCross = ta.crossover(close, currUp)  and currTrend == 1
+bearishCross = ta.crossunder(close, currDown) and currTrend == -1
+
+bullishSignal = switch signalMode
+    "Flip"  => bullishFlip
+    "Cross" => bullishCross
+    "Both"  => bullishFlip or bullishCross
+
+bearishSignal = switch signalMode
+    "Flip"  => bearishFlip
+    "Cross" => bearishCross
+    "Both"  => bearishFlip or bearishCross
+
+// ─── HTF Confluence ─────────────────────────────────
+bullishConfluence = bullishSignal and htfTrend == 1
+bearishConfluence = bearishSignal and htfTrend == -1
+
+plotshape(bullishSignal     ? low  * 0.998 : na, "Long",  shape.triangleup,   location.belowbar, color.green, size=size.small)
+plotshape(bearishSignal     ? high * 1.002 : na, "Short", shape.triangledown, location.abovebar, color.red,   size=size.small)
+plotshape(bullishConfluence ? low  * 0.995 : na, "Long+HTF",  shape.triangleup,   location.belowbar, color.green,  size=size.normal, text="HTF")
+plotshape(bearishConfluence ? high * 1.005 : na, "Short+HTF", shape.triangledown, location.abovebar, color.red,    size=size.normal, text="HTF")
+
+// ─── Alerts ──────────────────────────────────────────
+alertcondition(bullishConfluence, "Long + HTF Confluence", "Bullish Supertrend signal with HTF agreement")
+alertcondition(bearishConfluence, "Short + HTF Confluence", "Bearish Supertrend signal with HTF agreement")
